@@ -41,18 +41,27 @@ enum Event {
 	EVENT_NONE,
 	EVENT_QUIT,
 	EVENT_CLICK,
+	EVENT_SWITCH,
 };
 
 Event next_event(SDL_Context context)
 {
 	SDL_Event event;
-	if (!SDL_PollEvent(&event)) return EVENT_NONE;
-	switch (event.type) {
-	case SDL_QUIT:
-		return EVENT_QUIT;
-	case SDL_MOUSEBUTTONDOWN:
-		return EVENT_CLICK;
+	while (SDL_PollEvent(&event)) {
+		switch (event.type) {
+		case SDL_QUIT:
+			return EVENT_QUIT;
+		case SDL_MOUSEBUTTONDOWN:
+			return EVENT_CLICK;
+		case SDL_KEYDOWN:
+			if (event.key.repeat) break;
+			switch(event.key.keysym.scancode) {
+			case SDL_SCANCODE_SPACE:
+				return EVENT_SWITCH;
+			}
+		}
 	}
+	return EVENT_NONE;
 }
 
 void set_render_rgb(SDL_Context context, RGB color)
@@ -207,6 +216,12 @@ struct Instrument {
 	}
 };
 
+enum InstrumentType {
+	INSTR_KICK = 0,
+	INSTR_SNARE,
+	INSTR_COUNT,
+};
+
 int main()
 {
 	SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO);
@@ -214,14 +229,14 @@ int main()
 	if (Mix_Init(MIX_INIT_OGG)) {
 		printf("Error initializing SDL_Mixer:\n\t%s\n", Mix_GetError());
 	}
-	Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 2048);
+	Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 128);
 
 	SDL_Context context;
 
 	// Halved iphone 6 resolution (1334x750)
 	v2 window_size(667, 375);
 	
-	context.window = SDL_CreateWindow("DAW",
+	context.window = SDL_CreateWindow("Beatgrid",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		window_size.x, window_size.y, 0);
 	
@@ -230,14 +245,20 @@ int main()
 	
 	Song_Info song_info;
 	song_info.init(100);
-	
-	Beat_Grid beat_grid;
-	beat_grid.init(
-		v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50), 4, 5).y / 2),
-		v2(50, 50), 4, 5);
 
-	Instrument kick;
-	if (kick.init("kick.ogg")) return 1;
+	InstrumentType left_instr  = INSTR_KICK;
+	InstrumentType right_instr = INSTR_SNARE;
+	
+	Instrument instruments[INSTR_COUNT];
+	if (instruments[INSTR_KICK] .init("kick.ogg"))  return 1;
+	if (instruments[INSTR_SNARE].init("snare.ogg")) return 1;
+
+	Beat_Grid grids[INSTR_COUNT];
+	for (int i = 0; i < INSTR_COUNT; i++) {
+		grids[i].init(
+			v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50), 4, 5).y / 2),
+			v2(50, 50), 4, 5);
+	}
 	
 	bool running = true;
 	while (running) {
@@ -250,16 +271,20 @@ int main()
 				running = false;
 				break;
 			case EVENT_CLICK:
-				beat_grid.click(mouse_position);
+				grids[left_instr].click(mouse_position);
 				break;
+			case EVENT_SWITCH:
+				left_instr = (InstrumentType) ((left_instr + 1) % INSTR_COUNT);
 			}
 		}
-		if (beat_grid.update(song_info)) {
-			kick.play();
+		for (int i = 0; i < INSTR_COUNT; i++) {
+			if (grids[i].update(song_info)) {
+				instruments[i].play();
+			}
 		}
 		
 		render_clear(context, RGB(0x00, 0x00, 0x00));
-		beat_grid.render(context);
+		grids[left_instr].render(context);
 		SDL_RenderPresent(context.renderer);
 
 		song_info.tick();
