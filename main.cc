@@ -3,9 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <SDL.h>
-#include <SDL_ttf.h>
-#include <SDL_mixer.h>
+#define SDL_MAIN_HANDLED
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL_mixer.h>
 
 struct SDL_Context {
 	SDL_Window   * window;
