@@ -117,23 +117,26 @@ struct Beat {
 };
 
 struct Beat_Grid {
-	static const int padding = 5;
-	static const int size = 4;
 	v2 pos;
 	v2 pad_size;
-	Beat grid [size*size];
+	int size;
+	int padding;
+	Beat * grid;
 	int beat;
-	static v2 predict_size(v2 pad_size)
+	static v2 predict_size(v2 pad_size, int size, int padding)
 	{
 		v2 predicted_size;
 		predicted_size.x = (pad_size.x * size) + (padding * (size - 1));
 		predicted_size.y = (pad_size.y * size) + (padding * (size - 1));
 		return predicted_size;
 	}
-	void init(v2 pos, v2 pad_size)
+	void init(v2 pos, v2 pad_size, int size, int padding)
 	{
 		this->pos = pos;
 		this->pad_size = pad_size;
+		this->size = size;
+		this->padding = padding;
+		grid = (Beat*) malloc(sizeof(Beat) * size * size);
 		for (int i = 0; i < size*size; i++) grid[i] = {false, false};
 		this->beat = (size * size) - 1;
 	}
@@ -153,13 +156,14 @@ struct Beat_Grid {
 			}
 		}
 	}
-	void update(Song_Info song_info)
+	bool update(Song_Info song_info)
 	{
 		if (song_info.beat) {
 			grid[beat].beat = false;
 			beat = (beat + 1) % (size * size);
 			grid[beat].beat = true;
 		}
+		return song_info.beat && grid[beat].enabled;
 	}
 	void render(SDL_Context context)
 	{
@@ -185,11 +189,31 @@ struct Beat_Grid {
 	}
 };
 
+struct Instrument {
+	Mix_Chunk * sample;
+	int init(char * path)
+	{
+		sample = Mix_LoadWAV(path);
+		if (!sample) {
+			fprintf(stderr, "Error loading instrument sample:\n\t%s\n", Mix_GetError());
+			return 1;
+		}
+		return 0;
+	}
+	void play()
+	{
+		Mix_PlayChannel(-1, sample, 0);
+	}
+};
+
 int main()
 {
-	SDL_Init(SDL_INIT_EVERYTHING);
+	SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO);
 	TTF_Init();
-	Mix_Init(MIX_INIT_OGG);
+	if (Mix_Init(MIX_INIT_OGG)) {
+		printf("Error initializing SDL_Mixer:\n\t%s\n", Mix_GetError());
+	}
+	Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 2048);
 
 	SDL_Context context;
 
@@ -208,8 +232,11 @@ int main()
 	
 	Beat_Grid beat_grid;
 	beat_grid.init(
-		v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50)).y / 2),
-		v2(50, 50));
+		v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50), 4, 5).y / 2),
+		v2(50, 50), 4, 5);
+
+	Instrument kick;
+	if (kick.init("kick.ogg")) return 1;
 	
 	bool running = true;
 	while (running) {
@@ -226,7 +253,9 @@ int main()
 				break;
 			}
 		}
-		beat_grid.update(song_info);
+		if (beat_grid.update(song_info)) {
+			kick.play();
+		}
 		
 		render_clear(context, RGB(0x00, 0x00, 0x00));
 		beat_grid.render(context);
