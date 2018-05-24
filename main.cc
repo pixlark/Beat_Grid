@@ -123,6 +123,13 @@ struct Beat_Grid {
 	v2 pad_size;
 	Beat grid [size*size];
 	int beat;
+	static v2 predict_size(v2 pad_size)
+	{
+		v2 predicted_size;
+		predicted_size.x = (pad_size.x * size) + (padding * (size - 1));
+		predicted_size.y = (pad_size.y * size) + (padding * (size - 1));
+		return predicted_size;
+	}
 	void init(v2 pos, v2 pad_size)
 	{
 		this->pos = pos;
@@ -185,11 +192,13 @@ int main()
 	Mix_Init(MIX_INIT_OGG);
 
 	SDL_Context context;
+
+	// Halved iphone 6 resolution (1334x750)
+	v2 window_size(667, 375);
 	
 	context.window = SDL_CreateWindow("DAW",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		// 1134 x 750
-		567, 375, 0);
+		window_size.x, window_size.y, 0);
 	
 	context.renderer = SDL_CreateRenderer(context.window, -1, 0);
 	SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_BLEND);
@@ -198,7 +207,9 @@ int main()
 	song_info.init(100);
 	
 	Beat_Grid beat_grid;
-	beat_grid.init(v2(0, 0), v2(50, 50));
+	beat_grid.init(
+		v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50)).y / 2),
+		v2(50, 50));
 	
 	bool running = true;
 	while (running) {
