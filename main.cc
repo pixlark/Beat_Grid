@@ -215,6 +215,36 @@ struct Instrument {
 	}
 };
 
+struct Button {
+	v2 pos;
+	v2 size;
+	bool pressed;
+	bool hovered;
+};
+
+Button im_button(v2 pos, v2 size)
+{
+	Button button = {pos, size, false, false};
+	SDL_Point point;
+	bool clicked = SDL_GetMouseState(&point.x, &point.y) & SDL_BUTTON(SDL_BUTTON_LEFT);
+	SDL_Rect rect = {pos.x, pos.y, size.x, size.y};
+	if (SDL_PointInRect(&point, &rect)) {
+		button.hovered = true;
+		button.pressed = clicked;
+	}
+	return button;
+}
+
+void im_button_render(
+	SDL_Context context, Button button,
+	RGBA color, RGBA hover_color, RGBA press_color)
+{
+	RGBA render_color = color;
+	if (button.hovered) render_color = hover_color;
+	if (button.pressed) render_color = press_color;
+	render_fill_rect(context, button.pos, button.size, render_color);
+}
+
 enum Instr_Type {
 	INSTR_KICK = 0,
 	INSTR_SNARE,
@@ -224,13 +254,17 @@ enum Instr_Type {
 enum LR {
 	LEFT  = 0,
 	RIGHT = 1,
+	LR_COUNT = 2,
 };
+
+#define FOR_LR() for(LR lr = LEFT; lr < LR_COUNT; lr = (LR) ((int) lr + 1))
 
 /*
  * This struct manages two beat grids in a window, that are positioned
  * side-by-side and referred to as the left grid and the right grid.
  */
 struct Grid_Manager {
+	Button buttons[2];
 	Instr_Type indexes[2];
 	v2 positions[2];
 	Beat_Grid grids[INSTR_COUNT];
@@ -253,13 +287,29 @@ struct Grid_Manager {
 	}
 	void click(v2 mpos)
 	{
-		grids[indexes[LEFT]] .click(positions[LEFT],  mpos);
-		grids[indexes[RIGHT]].click(positions[RIGHT], mpos);
+		FOR_LR() {
+			grids[indexes[lr]].click(positions[lr], mpos);
+		}
+	}
+	void update()
+	{
+		FOR_LR() {
+			buttons[lr] = im_button(v2(positions[lr].x, 300), v2(50, 50));
+			if (buttons[lr].pressed) {
+				switch_instr(lr);
+			}
+		}
 	}
 	void render(SDL_Context context)
 	{
-		grids[indexes[LEFT]] .render(context, positions[LEFT]);
-		grids[indexes[RIGHT]].render(context, positions[RIGHT]);
+		FOR_LR() {
+			grids[indexes[lr]].render(context, positions[lr]);
+			im_button_render(
+				context, buttons[lr],
+				RGBA(0x88, 0x88, 0x88, 0xff),
+				RGBA(0xaa, 0xaa, 0xaa, 0xff),
+				RGBA(0xcc, 0xcc, 0xcc, 0xff));
+		}
 	}
 };
 
@@ -309,6 +359,7 @@ int main()
 				break;
 			case EVENT_SWITCH:
 				grid_manager.switch_instr(LEFT);
+				break;
 			}
 		}
 		for (int i = 0; i < INSTR_COUNT; i++) {
@@ -316,6 +367,8 @@ int main()
 				instruments[i].play();
 			}
 		}
+
+		grid_manager.update();
 		
 		render_clear(context, RGB(0x00, 0x00, 0x00));
 		grid_manager.render(context);
