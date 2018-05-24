@@ -8,11 +8,6 @@
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_mixer.h>
 
-struct SDL_Context {
-	SDL_Window   * window;
-	SDL_Renderer * renderer;
-};
-
 struct RGB {
 	char r;
 	char g;
@@ -35,6 +30,12 @@ struct v2 {
 	int y;
 	v2() { }
 	v2(int x, int y) : x(x), y(y) { }
+};
+
+struct SDL_Context {
+	v2 window_size;
+	SDL_Window   * window;
+	SDL_Renderer * renderer;
 };
 
 enum Event {
@@ -127,22 +128,20 @@ struct Beat {
 };
 
 struct Beat_Grid {
-	v2 pos;
 	v2 pad_size;
 	int size;
 	int padding;
 	Beat * grid;
 	int beat;
-	static v2 predict_size(v2 pad_size, int size, int padding)
+	v2 render_size()
 	{
-		v2 predicted_size;
-		predicted_size.x = (pad_size.x * size) + (padding * (size - 1));
-		predicted_size.y = (pad_size.y * size) + (padding * (size - 1));
-		return predicted_size;
+		v2 render_size;
+		render_size.x = (pad_size.x * size) + (padding * (size - 1));
+		render_size.y = (pad_size.y * size) + (padding * (size - 1));
+		return render_size;
 	}
-	void init(v2 pos, v2 pad_size, int size, int padding)
+	void init(v2 pad_size, int size, int padding)
 	{
-		this->pos = pos;
 		this->pad_size = pad_size;
 		this->size = size;
 		this->padding = padding;
@@ -150,7 +149,7 @@ struct Beat_Grid {
 		for (int i = 0; i < size*size; i++) grid[i] = {false, false};
 		this->beat = (size * size) - 1;
 	}
-	void click(v2 mouse_pos)
+	void click(v2 pos, v2 mouse_pos)
 	{
 		for (int y = 0; y < size; y++) {
 			for (int x = 0; x < size; x++) {
@@ -175,7 +174,7 @@ struct Beat_Grid {
 		}
 		return song_info.beat && grid[beat].enabled;
 	}
-	void render(SDL_Context context)
+	void render(SDL_Context context, v2 pos)
 	{
 		for (int y = 0; y < size; y++) {
 			for (int x = 0; x < size; x++) {
@@ -216,10 +215,52 @@ struct Instrument {
 	}
 };
 
-enum InstrumentType {
+enum Instr_Type {
 	INSTR_KICK = 0,
 	INSTR_SNARE,
 	INSTR_COUNT,
+};
+
+enum LR {
+	LEFT  = 0,
+	RIGHT = 1,
+};
+
+/*
+ * This struct manages two beat grids in a window, that are positioned
+ * side-by-side and referred to as the left grid and the right grid.
+ */
+struct Grid_Manager {
+	Instr_Type indexes[2];
+	v2 positions[2];
+	Beat_Grid grids[INSTR_COUNT];
+	void init(v2 window_size, Instr_Type left, Instr_Type right, v2 pad_size, int grid_size, int padding)
+	{
+		indexes[LEFT]  = left;
+		indexes[RIGHT] = right;
+		for (int i = 0; i < INSTR_COUNT; i++) {
+			grids[i].init(pad_size, grid_size, padding);
+		}
+		v2 render_size = grids[left].render_size();
+		int center_y = window_size.y / 2 - render_size.y / 2;
+		int ext_padding = (window_size.x - 2 * render_size.x) / 3;
+		positions[LEFT]  = v2(ext_padding, center_y);
+		positions[RIGHT] = v2(2 * ext_padding + render_size.x, center_y);
+	}
+	void switch_instr(LR which)
+	{
+		indexes[which] = (Instr_Type) ((indexes[which] + 1) % INSTR_COUNT);
+	}
+	void click(v2 mpos)
+	{
+		grids[indexes[LEFT]] .click(positions[LEFT],  mpos);
+		grids[indexes[RIGHT]].click(positions[RIGHT], mpos);
+	}
+	void render(SDL_Context context)
+	{
+		grids[indexes[LEFT]] .render(context, positions[LEFT]);
+		grids[indexes[RIGHT]].render(context, positions[RIGHT]);
+	}
 };
 
 int main()
@@ -234,31 +275,24 @@ int main()
 	SDL_Context context;
 
 	// Halved iphone 6 resolution (1334x750)
-	v2 window_size(667, 375);
+	context.window_size = v2(667, 375);
 	
 	context.window = SDL_CreateWindow("Beatgrid",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		window_size.x, window_size.y, 0);
+		context.window_size.x, context.window_size.y, 0);
 	
 	context.renderer = SDL_CreateRenderer(context.window, -1, 0);
 	SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_BLEND);
 	
 	Song_Info song_info;
 	song_info.init(100);
-
-	InstrumentType left_instr  = INSTR_KICK;
-	InstrumentType right_instr = INSTR_SNARE;
 	
 	Instrument instruments[INSTR_COUNT];
 	if (instruments[INSTR_KICK] .init("kick.ogg"))  return 1;
 	if (instruments[INSTR_SNARE].init("snare.ogg")) return 1;
 
-	Beat_Grid grids[INSTR_COUNT];
-	for (int i = 0; i < INSTR_COUNT; i++) {
-		grids[i].init(
-			v2(15, window_size.y / 2 - Beat_Grid::predict_size(v2(50, 50), 4, 5).y / 2),
-			v2(50, 50), 4, 5);
-	}
+	Grid_Manager grid_manager;
+	grid_manager.init(context.window_size, INSTR_KICK, INSTR_SNARE, v2(50, 50), 4, 5);
 	
 	bool running = true;
 	while (running) {
@@ -271,20 +305,20 @@ int main()
 				running = false;
 				break;
 			case EVENT_CLICK:
-				grids[left_instr].click(mouse_position);
+				grid_manager.click(mouse_position);
 				break;
 			case EVENT_SWITCH:
-				left_instr = (InstrumentType) ((left_instr + 1) % INSTR_COUNT);
+				grid_manager.switch_instr(LEFT);
 			}
 		}
 		for (int i = 0; i < INSTR_COUNT; i++) {
-			if (grids[i].update(song_info)) {
+			if (grid_manager.grids[i].update(song_info)) {
 				instruments[i].play();
 			}
 		}
 		
 		render_clear(context, RGB(0x00, 0x00, 0x00));
-		grids[left_instr].render(context);
+		grid_manager.render(context);
 		SDL_RenderPresent(context.renderer);
 
 		song_info.tick();
